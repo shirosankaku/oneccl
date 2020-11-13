@@ -1,18 +1,3 @@
-/*
- Copyright 2016-2020 Intel Corporation
- 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
- 
-     http://www.apache.org/licenses/LICENSE-2.0
- 
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-*/
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -24,6 +9,8 @@
 #include <sys/socket.h>
 #include <time.h>
 #include <unistd.h>
+
+#include <sys/wait.h>
 
 #include "util/pm/pmi_resizable_rt/pmi_resizable/helper.hpp"
 #include "util/pm/pmi_resizable_rt/pmi_resizable/def.h"
@@ -629,15 +616,51 @@ size_t init_main_server_by_string(const char* main_addr) {
 }
 
 size_t internal_kvs::kvs_main_server_address_reserve(char* main_address) {
-    FILE* fp;
     char* additional_local_host_ips;
+#ifdef CCL_MXNET_ENABLE
+    int fds[2];
+    if (pipe(fds) < 0) {
+        perror("reserve_main_address: can not create process pipeline");
+        exit(EXIT_FAILURE);
+    }
+    pid_t pid = vfork();
+    if (pid < 0) {
+        perror("reserve_main_address: can not start child process");
+        exit(EXIT_FAILURE);
+    }
+    else if (pid == 0) { // child 
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        char* argv[] = {(char *)"hostname", (char *)"-I", NULL};
+        if (execvp(argv[0], argv) < 0) {
+            perror("reserve_main_address: can not get host IP");
+            _exit(EXIT_FAILURE);
+        }
+    }
+    else { // parent
+        close(fds[1]);
+        int status;
+        if (waitpid(pid, &status, 0) != pid) {
+            perror("reserve_main_address: waited for the wrong pid");
+            exit(EXIT_FAILURE);
+        }
+        if (read(fds[0], local_host_ip, CCL_IP_LEN) < 0) {
+            perror("reserve_main_address: can not read host IP");
+            exit(EXIT_FAILURE);
+        } 
+        close(fds[0]);
+    }
+#else
+    FILE* fp;
     if ((fp = popen(GET_IP_CMD, READ_ONLY)) == NULL) {
         perror("reserve_main_address: can not get host IP");
         exit(EXIT_FAILURE);
     }
     CHECK_FGETS(fgets(local_host_ip, CCL_IP_LEN, fp), local_host_ip);
     pclose(fp);
-
+#endif
+    
     while (local_host_ip[strlen(local_host_ip) - 1] == '\n' ||
            local_host_ip[strlen(local_host_ip) - 1] == ' ')
         local_host_ip[strlen(local_host_ip) - 1] = NULL_CHAR;
@@ -681,17 +704,52 @@ size_t internal_kvs::kvs_main_server_address_reserve(char* main_address) {
 
 size_t init_main_server_address(const char* main_addr) {
     char* ip_getting_type = getenv(CCL_KVS_IP_EXCHANGE_ENV);
-    FILE* fp;
     char* additional_local_host_ips;
-
+#ifdef CCL_MXNET_ENABLE
+    int fds[2];
+    if (pipe(fds) < 0) {
+        perror("init_main_server_address: can not create process pipeline");
+        exit(EXIT_FAILURE);
+    }
+    pid_t pid = vfork();
+    if (pid < 0) {
+        perror("init_main_server_address: can not start child process");
+        exit(EXIT_FAILURE);
+    }
+    else if (pid == 0) { // child
+        dup2(fds[1], STDOUT_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        char *argv[] = {(char *)"hostname", (char *)"-I", NULL};
+        if (execvp(argv[0], argv) < 0) {
+            perror("init_main_server_address: can not get host IP");
+            _exit(EXIT_FAILURE);
+        }
+    }
+    else { // parent
+        close(fds[1]);
+        int status;
+        if (waitpid(pid, &status, 0) != pid) {
+            perror("init_main_server_address: waited for the wrong pid");
+            exit(EXIT_FAILURE);
+        }
+        memset(local_host_ip, 0, CCL_IP_LEN);
+        if (read(fds[0], local_host_ip, CCL_IP_LEN) < 0) {
+            perror("init_main_server_address: can not read host IP");
+            exit(EXIT_FAILURE);
+        } 
+        close(fds[0]);
+    }
+#else
+    FILE* fp;
     if ((fp = popen(GET_IP_CMD, READ_ONLY)) == NULL) {
         perror("init_main_server_address: can not get host IP");
         exit(EXIT_FAILURE);
     }
-
     memset(local_host_ip, 0, CCL_IP_LEN);
     CHECK_FGETS(fgets(local_host_ip, CCL_IP_LEN, fp), local_host_ip);
     pclose(fp);
+#endif    
 
     while (local_host_ip[strlen(local_host_ip) - 1] == '\n' ||
            local_host_ip[strlen(local_host_ip) - 1] == ' ')

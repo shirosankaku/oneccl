@@ -44,6 +44,8 @@ if (${CMAKE_BUILD_TYPE_CASE_INSENSITIVE} STREQUAL "debug")
     set(USE_SECURITY_FLAGS FALSE)
 endif()
 
+option(MXNET_BUILD "Build KVS MXNet compliant" FALSE)
+
 option(BUILD_UT "Build unit tests" TRUE)
 option(USE_CODECOV_FLAGS "Calculate code coverage" FALSE)
 option(WITH_ASAN "Use address sanitizer, can only be used in Debug build" FALSE)
@@ -237,6 +239,13 @@ add_definitions(-DCCL_GPU_BF16_TRUNCATE)
 set(CCL_GPU_BF16_TRUNCATE ON)
 
 set(CCL_BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/src)
+
+if (MXNET_BUILD)
+    add_definitions(-DCCL_MXNET_ENABLE)
+    message(STATUS "Build KVS MXNet compliant: yes")
+else()
+    message(STATUS "Build KVS MXNet compliant: no")
+endif()
 
 enable_testing()
 
