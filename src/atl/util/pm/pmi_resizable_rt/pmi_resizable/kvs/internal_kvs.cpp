@@ -12,6 +12,12 @@
 
 #include <sys/wait.h>
 
+#include <sys/types.h>
+#include <ifaddrs.h>
+#include <sys/socket.h>
+#include <netdb.h>
+
+
 #include "util/pm/pmi_resizable_rt/pmi_resizable/helper.hpp"
 #include "util/pm/pmi_resizable_rt/pmi_resizable/def.h"
 #include "internal_kvs.h"
@@ -652,6 +658,7 @@ size_t internal_kvs::kvs_main_server_address_reserve(char* main_address) {
         close(fds[0]);
     }
 #else
+#if 0
     FILE* fp;
     if ((fp = popen(GET_IP_CMD, READ_ONLY)) == NULL) {
         perror("reserve_main_address: can not get host IP");
@@ -659,6 +666,45 @@ size_t internal_kvs::kvs_main_server_address_reserve(char* main_address) {
     }
     CHECK_FGETS(fgets(local_host_ip, CCL_IP_LEN, fp), local_host_ip);
     pclose(fp);
+#endif
+    printf("-----------ENTERING GET IP SECTION------------------\n");fflush(stdout);
+    struct ifaddrs *ifaddr, *ifa;
+    int family = AF_UNSPEC;
+    if (getifaddrs(&ifaddr) < 0) {
+        perror("reserve_main_address: can not get host IP");
+        exit(EXIT_FAILURE);
+    }
+
+    char iface_name[] = "lo";
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) continue;
+        if (strncmp(ifa->ifa_name, iface_name, strlen(iface_name)) != 0)
+        {
+            family = ifa->ifa_addr->sa_family;
+            if (family == AF_INET || family == AF_INET6) break;
+        }
+        
+    }
+    if (!ifa) {
+        perror("reserve_main_address: can't find interface to get host IP");
+        exit(EXIT_FAILURE);
+    }
+
+    int res = getnameinfo(ifa->ifa_addr,
+                             (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
+                             local_host_ip, CCL_IP_LEN,
+                             NULL, 0, NI_NUMERICHOST);
+
+    if (res != 0) {
+        std::string s("reserve_main_address: getnameinfo error > ");
+        s += gai_strerror(res);
+        perror(s.c_str());
+        exit(EXIT_FAILURE);
+    }
+
+    freeifaddrs(ifaddr);
+    printf("-----------LEAVING GET IP SECTION------------------\n");fflush(stdout);
 #endif
     
     while (local_host_ip[strlen(local_host_ip) - 1] == '\n' ||
@@ -699,6 +745,7 @@ size_t internal_kvs::kvs_main_server_address_reserve(char* main_address) {
              "_%d",
              main_server_address.sin_port);
 
+    printf("IP ADDR %s\n", main_address);fflush(stdout);
     return 0;
 }
 
@@ -741,6 +788,7 @@ size_t init_main_server_address(const char* main_addr) {
         close(fds[0]);
     }
 #else
+#if 0
     FILE* fp;
     if ((fp = popen(GET_IP_CMD, READ_ONLY)) == NULL) {
         perror("init_main_server_address: can not get host IP");
@@ -749,6 +797,45 @@ size_t init_main_server_address(const char* main_addr) {
     memset(local_host_ip, 0, CCL_IP_LEN);
     CHECK_FGETS(fgets(local_host_ip, CCL_IP_LEN, fp), local_host_ip);
     pclose(fp);
+#endif
+    printf("-----------ENTERING GET IP SECTION------------------\n");fflush(stdout);
+    struct ifaddrs *ifaddr, *ifa;
+    int family = AF_UNSPEC;
+    if (getifaddrs(&ifaddr) < 0) {
+        perror("init_main_server_address: can not get host IP");
+        exit(EXIT_FAILURE);
+    }
+
+    char iface_name[] = "lo";
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) continue;
+        if (strncmp(ifa->ifa_name, iface_name, strlen(iface_name)) != 0)
+        {
+            family = ifa->ifa_addr->sa_family;
+            if (family == AF_INET || family == AF_INET6) break;
+        }
+        
+    }
+    if (!ifa) {
+        perror("init_main_server_address: can't find interface to get host IP");
+        exit(EXIT_FAILURE);
+    }
+
+    int res = getnameinfo(ifa->ifa_addr,
+                             (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6),
+                             local_host_ip, CCL_IP_LEN,
+                             NULL, 0, NI_NUMERICHOST);
+
+    if (res != 0) {
+        std::string s("init_main_server_address: getnameinfo error > ");
+        s += gai_strerror(res);
+        perror(s.c_str());
+        exit(EXIT_FAILURE);
+    }
+
+    freeifaddrs(ifaddr);
+    printf("-----------LEAVING GET IP SECTION------------------\n");fflush(stdout);
 #endif    
 
     while (local_host_ip[strlen(local_host_ip) - 1] == '\n' ||
@@ -772,6 +859,7 @@ size_t init_main_server_address(const char* main_addr) {
             return 1;
         }
     }
+    printf("IP ADDR %s\n", local_host_ip);fflush(stdout);
 
     if (main_addr != NULL) {
         ip_getting_mode = IGT_ENV;
